@@ -129,7 +129,7 @@ class Chain:
               Never claim it and never apologize for it.
 
             CONTENT RULES:
-            - Mention only the 2 or 3 points from the resume that best match the job.
+            - Mention only the 3 or 4 points from the resume that best match the job.
               Do not summarize the resume or list all skills, projects or education.
             - Keep each point to one short line (what you worked on and with which
               technology). Skip details that are not directly relevant to this job.

@@ -178,6 +178,7 @@
 
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from chains import Chain
 from portfolio import extract_resume_text
@@ -186,6 +187,65 @@ from utils import clean_text, fetch_job_page
 
 MAX_RESUME_SIZE = 5 * 1024 * 1024
 
+CSS = """
+<style>
+[data-testid="stHeader"] { display: none; }
+
+[data-testid="stMainBlockContainer"] {
+    padding: 1.2rem 2rem 0 !important;
+}
+
+/* section labels above inputs */
+.lbl {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    margin: 0.9rem 0 0.25rem;
+}
+
+/* skill pill badges */
+.skill {
+    display: inline-block;
+    background: #1a2f4a;
+    border: 1px solid #2e6da4;
+    border-radius: 20px;
+    padding: 3px 13px;
+    margin: 3px 4px 3px 0;
+    font-size: 0.78rem;
+    color: #90caf9;
+}
+
+/* email read-only display box */
+.email-box {
+    background: #0e1117;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    white-space: pre-wrap;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.75;
+    color: #e0e0e0;
+    margin-top: 0.4rem;
+}
+
+/* right panel placeholder */
+.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 60vh;
+    color: #444;
+    font-size: 0.95rem;
+    text-align: center;
+}
+
+/* vertical divider between columns */
+[data-testid="stVerticalBlockBorderWrapper"] { border: none !important; }
+</style>
+"""
+
 
 def clear_previous_results():
     """Clear old generated emails when the resume or job input changes."""
@@ -193,7 +253,7 @@ def clear_previous_results():
 
     # Clear old email editor values.
     for key in list(st.session_state.keys()):
-        if key.startswith(("email_", "download_")):
+        if key.startswith("email_"):
             st.session_state.pop(key, None)
 
 
@@ -203,194 +263,201 @@ def get_chain():
     return Chain()
 
 
+def _copy_button(text: str, idx: int):
+    safe = text.replace("\\", "\\\\").replace("`", "\\`").replace("\r", "")
+    components.html(
+        f"""
+        <button
+          onclick="navigator.clipboard.writeText(`{safe}`)
+            .then(()=>{{this.textContent='\u2705 Copied!';
+                        setTimeout(()=>this.textContent='\U0001f4cb Copy Email',2000)}})
+            .catch(()=>this.textContent='\u274c Failed')"
+          style="padding:6px 20px;background:#2575fc;color:#fff;border:none;
+                 border-radius:7px;font-size:0.82rem;cursor:pointer;font-weight:600;">
+          \U0001f4cb Copy Email
+        </button>""",
+        height=42,
+    )
+
+
 def main():
     st.set_page_config(
-        page_title="AI Cold Email Generator",
-        page_icon="📧",
+        page_title="Cold Email Generator",
+        page_icon="\U0001f4e7",
         layout="wide",
     )
 
-    st.title("📧 AI Cold Email Generator")
-    st.write(
-        "Upload your resume and enter a job posting "
-        "to generate a personalized cold email."
-    )
+    st.markdown(CSS, unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center;'>\U0001f4e7 Cold Email Generator</h3>", unsafe_allow_html=True)
 
-    # --------------------------------------------------
-    # 1. Resume upload
-    # --------------------------------------------------
-    st.subheader("1. Upload your resume")
+    left, right = st.columns([1, 1], gap="large")
 
-    uploaded_resume = st.file_uploader(
-        "Choose your resume PDF",
-        type=["pdf"],
-        accept_multiple_files=False,
-        key="resume_uploader",
-        on_change=clear_previous_results,
-    )
+    # ── LEFT: inputs ──────────────────────────────────────────────────────────
+    with left:
 
-    st.caption(
-        "Your resume is processed in memory by this app and is not "
-        "intentionally saved to disk or a database. Extracted resume "
-        "text is sent to the configured AI provider to generate your email."
-    )
+        # --------------------------------------------------
+        # 1. Resume upload
+        # --------------------------------------------------
+        st.markdown("<p class='lbl'>Resume (PDF)</p>", unsafe_allow_html=True)
+        uploaded_resume = st.file_uploader(
+            "resume",
+            type=["pdf"],
+            accept_multiple_files=False,
+            key="resume_uploader",
+            label_visibility="collapsed",
+            on_change=clear_previous_results,
+        )
 
-    # --------------------------------------------------
-    # 2. Job details
-    # --------------------------------------------------
-    st.subheader("2. Enter job details")
+        # --------------------------------------------------
+        # 2. Job details
+        # --------------------------------------------------
+        st.markdown("<p class='lbl'>Job Posting URL</p>", unsafe_allow_html=True)
+        job_url = st.text_input(
+            "url",
+            placeholder="https://company.com/careers/job/123",
+            key="job_url",
+            label_visibility="collapsed",
+            on_change=clear_previous_results,
+        )
 
-    job_url = st.text_input(
-        "Job posting URL (optional if you paste the description)",
-        placeholder="https://company.com/careers/job/123",
-        key="job_url",
-        on_change=clear_previous_results,
-    )
+        st.markdown("<p class='lbl'>Or Paste Job Description</p>", unsafe_allow_html=True)
+        job_description = st.text_area(
+            "desc",
+            height=160,
+            placeholder="Paste the complete job description here...",
+            key="job_description",
+            label_visibility="collapsed",
+            on_change=clear_previous_results,
+        )
 
-    job_description = st.text_area(
-        "Or paste the job description",
-        height=200,
-        placeholder="Paste the complete job description here...",
-        key="job_description",
-        on_change=clear_previous_results,
-    )
+        # --------------------------------------------------
+        # 3. Submit button
+        # --------------------------------------------------
+        generate = st.button(
+            "\u26a1 Generate Cold Email",
+            type="primary",
+            use_container_width=True,
+        )
 
-    # --------------------------------------------------
-    # 3. Generate email
-    # --------------------------------------------------
-    if st.button(
-        "⚡ Generate Cold Email",
-        type="primary",
-        use_container_width=True,
-    ):
-        # Always remove the previous result before starting.
-        clear_previous_results()
+    # ── RIGHT: output ─────────────────────────────────────────────────────────
+    with right:
 
-        if uploaded_resume is None:
-            st.error("Please upload your resume.")
-            st.stop()
-
-        if uploaded_resume.size > MAX_RESUME_SIZE:
-            st.error("Resume size must not exceed 5 MB.")
-            st.stop()
-
-        pdf_bytes = uploaded_resume.getvalue()
-
-        if not pdf_bytes.startswith(b"%PDF-"):
-            st.error("Please upload a valid PDF file.")
-            st.stop()
-
-        try:
-            # Extract text from the current uploaded resume.
-            with st.spinner("Reading your resume..."):
-                resume_text = extract_resume_text(pdf_bytes)
-
-            del pdf_bytes
-
-            if not resume_text.strip():
-                st.error(
-                    "No readable text was found in the resume. "
-                    "Please upload a text-based PDF."
-                )
-                st.stop()
-
-            # Use pasted job description first, if provided.
-            job_text = job_description.strip()
-
-            if not job_text and job_url.strip():
-                with st.spinner("Reading job posting..."):
-                    job_text = fetch_job_page(job_url.strip())
-
-            if not job_text:
-                st.error(
-                    "Please enter a job URL or paste the job description."
-                )
-                st.stop()
-
-            # Limit input size before sending it to the model.
-            job_text = clean_text(job_text)[:25000]
-            resume_text = resume_text[:18000]
-
-            chain = get_chain()
-
-            with st.spinner("Extracting job requirements..."):
-                jobs = chain.extract_jobs(job_text)
-
-            if not jobs:
-                st.error(
-                    "Could not extract job details. "
-                    "Try pasting the job description directly."
-                )
-                st.stop()
-
-            results = []
-
-            with st.spinner("Generating your personalized email..."):
-                for job in jobs[:3]:
-                    email = chain.write_mail(job, resume_text)
-                    results.append((job, email))
-
-            # Store results only in this user's Streamlit session.
-            st.session_state["results"] = results
-
-            # Remove our local reference to the extracted resume text.
-            del resume_text
-
-        except Exception as exc:
-            # Avoid displaying sensitive server details to public users.
-            st.error(
-                f"Email generation failed ({type(exc).__name__}). "
-                "Try pasting the job description or uploading another PDF."
-            )
-
-    # --------------------------------------------------
-    # 4. Display generated emails
-    # --------------------------------------------------
-    results = st.session_state.get("results", [])
-
-    if results:
-        st.divider()
-        st.subheader("3. Your generated email")
-
-        for index, (job, email) in enumerate(results, start=1):
-            role = job.get("role") or f"Job {index}"
-
-            st.markdown(f"### {role}")
-
-            skills = job.get("skills", [])
-
-            if isinstance(skills, list) and skills:
-                st.write(
-                    "**Required skills:**",
-                    ", ".join(str(skill) for skill in skills),
-                )
-
-            edited_email = st.text_area(
-                "Review and edit your email",
-                value=email,
-                height=250,
-                key=f"email_{index}",
-            )
-
-            st.download_button(
-                "Download Email",
-                data=edited_email,
-                file_name=f"cold_email_{index}.txt",
-                mime="text/plain",
-                key=f"download_{index}",
-                use_container_width=True,
-            )
-
-        if st.button("Clear generated emails"):
+        if generate:
+            # Always remove the previous result before starting.
             clear_previous_results()
-            st.rerun()
 
-    st.divider()
+            if uploaded_resume is None:
+                st.error("Please upload your resume.")
+                st.stop()
 
-    st.caption(
-        "Review the generated email before sending it. "
-        "This application generates drafts and does not send emails automatically."
-    )
+            if uploaded_resume.size > MAX_RESUME_SIZE:
+                st.error("Resume size must not exceed 5 MB.")
+                st.stop()
+
+            pdf_bytes = uploaded_resume.getvalue()
+
+            if not pdf_bytes.startswith(b"%PDF-"):
+                st.error("Please upload a valid PDF file.")
+                st.stop()
+
+            try:
+                # Extract text from the current uploaded resume.
+                with st.spinner("Reading your resume..."):
+                    resume_text = extract_resume_text(pdf_bytes)
+
+                del pdf_bytes
+
+                if not resume_text.strip():
+                    st.error(
+                        "No readable text was found in the resume. "
+                        "Please upload a text-based PDF."
+                    )
+                    st.stop()
+
+                # Use pasted job description first, if provided.
+                job_text = job_description.strip()
+
+                if not job_text and job_url.strip():
+                    with st.spinner("Reading job posting..."):
+                        job_text = fetch_job_page(job_url.strip())
+
+                if not job_text:
+                    st.error(
+                        "Please enter a job URL or paste the job description."
+                    )
+                    st.stop()
+
+                # Limit input size before sending it to the model.
+                job_text = clean_text(job_text)[:25000]
+                resume_text = resume_text[:18000]
+
+                chain = get_chain()
+
+                with st.spinner("Extracting job requirements..."):
+                    jobs = chain.extract_jobs(job_text)
+
+                if not jobs:
+                    st.error(
+                        "Could not extract job details. "
+                        "Try pasting the job description directly."
+                    )
+                    st.stop()
+
+                results = []
+
+                with st.spinner("Generating your personalized email..."):
+                    for job in jobs[:3]:
+                        email = chain.write_mail(job, resume_text)
+                        results.append((job, email))
+
+                # Store results only in this user's Streamlit session.
+                st.session_state["results"] = results
+
+                # Remove our local reference to the extracted resume text.
+                del resume_text
+
+            except Exception as exc:
+                # Avoid displaying sensitive server details to public users.
+                st.error(
+                    f"Email generation failed ({type(exc).__name__}). "
+                    "Try pasting the job description or uploading another PDF."
+                )
+
+        # --------------------------------------------------
+        # 4. Display generated emails
+        # --------------------------------------------------
+        results = st.session_state.get("results", [])
+
+        if results:
+            for index, (job, email) in enumerate(results, start=1):
+                role = job.get("role") or f"Job {index}"
+
+                if len(results) > 1:
+                    st.markdown(f"**{role}**")
+
+                # Skills section
+                skills = job.get("skills", [])
+                if isinstance(skills, list) and skills:
+                    st.markdown("<p class='lbl'>\U0001f6e0 Required Skills</p>", unsafe_allow_html=True)
+                    badges = "".join(f"<span class='skill'>{s}</span>" for s in skills)
+                    st.markdown(badges, unsafe_allow_html=True)
+
+                # Email section
+                st.markdown("<p class='lbl'>\U0001f4e7 Cold Email</p>", unsafe_allow_html=True)
+
+                # Copy button at the top of the email
+                _copy_button(email, index)
+
+                st.markdown(f"<div class='email-box'>{email}</div>", unsafe_allow_html=True)
+
+                if index < len(results):
+                    st.divider()
+
+        else:
+            st.markdown(
+                "<div class='placeholder'>\U0001f4ec Results will appear here after you submit.</div>",
+                unsafe_allow_html=True,
+            )
 
 
 if __name__ == "__main__":
